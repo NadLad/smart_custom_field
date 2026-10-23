@@ -6,3 +6,4 @@ tmp/
 db/*.sqlite3
 test/reports/
 .DS_Store
+test/docker/

@@ -1,0 +1,31 @@
+# Test image for the smart_custom_field plugin.
+#
+# Derived from the official Redmine 7.0.2 image, which bundles without the
+# development and test groups and ships neither sqlite3 nor the gems required
+# by Redmine's test_helper (mocha, net-ldap).
+#
+# Everything is baked once at build time: the test schema lives in the image,
+# so a test run only has to migrate the plugin itself.
+FROM redmine:7.0.2
+
+USER root
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential libsqlite3-dev \
+ && rm -rf /var/lib/apt/lists/*
+
+# Isolated sqlite3 database for the test environment.
+RUN printf 'test:\n  adapter: sqlite3\n  database: db/redmine_test.sqlite3\n' \
+      > /usr/src/redmine/config/database.yml
+
+# Declared outside the :test group so they are installed even though the image
+# keeps `bundle config without development test`.
+RUN printf "gem 'mocha', '>= 2.0.1'\ngem 'net-ldap', '~> 0.20.0'\n" \
+      > /usr/src/redmine/Gemfile.local
+
+RUN cd /usr/src/redmine && bundle install
+
+# Bake the core test schema once.
+RUN cd /usr/src/redmine && RAILS_ENV=test bundle exec rake db:create db:migrate
+
+USER redmine
