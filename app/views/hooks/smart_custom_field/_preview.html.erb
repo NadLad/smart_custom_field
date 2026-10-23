@@ -51,6 +51,31 @@
         return wrapper;
       }
 
+      // The inputs are the answer to "why this value": one row per custom
+      // field the formula actually read, with the value it was given.
+      function inputsTable(inputs) {
+        var table = document.createElement('table');
+        table.className = 'list';
+        var head = document.createElement('tr');
+        ['Field', 'Reference', 'Value'].forEach(function (label) {
+          var th = document.createElement('th');
+          th.textContent = label;
+          head.appendChild(th);
+        });
+        table.appendChild(head);
+
+        inputs.forEach(function (input) {
+          var tr = document.createElement('tr');
+          [input.name, 'cfs[' + input.id + ']', input.cast].forEach(function (value) {
+            var td = document.createElement('td');
+            td.textContent = value;
+            tr.appendChild(td);
+          });
+          table.appendChild(tr);
+        });
+        return table;
+      }
+
       function render(payload) {
         output.textContent = '';
         if (payload.ok) {
@@ -60,10 +85,11 @@
           output.appendChild(row('Error', payload.error));
         }
 
-        var inputs = (payload.inputs || []).map(function (input) {
-          return input.name + ' [cfs[' + input.id + ']] = ' + input.cast;
-        });
-        output.appendChild(list('Inputs', inputs));
+        var inputs = payload.inputs || [];
+        if (inputs.length) {
+          output.appendChild(row('Inputs', ''));
+          output.appendChild(inputsTable(inputs));
+        }
 
         if (payload.warnings && payload.warnings.length) {
           output.appendChild(list('Warnings', payload.warnings));

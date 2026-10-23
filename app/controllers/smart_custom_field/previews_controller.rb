@@ -16,6 +16,22 @@ module SmartCustomField
       render :json => Preview.for(params[:formula].to_s, object, preview_field)
     end
 
+    # Explains the value already stored for a saved computed field: same
+    # breakdown as the preview, but the formula comes from the field instead of
+    # the request. Answers "why 42?" without opening the admin form.
+    def explain
+      field = CustomField.find_by(:id => params[:custom_field_id])
+      return render_404 if field.nil? || !field.is_computed?
+
+      model = field.class.customized_class
+      return render_404 if model.nil? || !Preview.allowed_types.include?(model.name)
+
+      object = model.find_by(:id => params[:object_id])
+      return render_404 if object.nil?
+
+      render :json => Preview.for(field.formula, object, field)
+    end
+
     private
 
     def preview_object
