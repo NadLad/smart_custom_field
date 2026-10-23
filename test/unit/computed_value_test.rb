@@ -62,8 +62,21 @@ class SmartCustomFieldComputedValueTest < ActiveSupport::TestCase
   def test_computed_field_is_read_only_on_issues
     issue = create_issue(@a => '1')
 
-    assert_includes issue.read_only_attribute_names(User.find(2)), @sum.id.to_s
-    assert_not_includes issue.read_only_attribute_names(User.find(2)), @a.id.to_s
+    user = User.find(2)
+
+    assert_includes issue.read_only_attribute_names(user), @sum.id.to_s
+    assert_not_includes issue.read_only_attribute_names(user), @a.id.to_s
+    assert_not_includes issue.editable_custom_field_values(user).map(&:custom_field_id), @sum.id
+  end
+
+  def test_patches_are_applied_once
+    before = Issue._validation_callbacks.count
+
+    SmartCustomField::Patches.apply!
+    SmartCustomField::Patches.apply!
+
+    assert_equal before, Issue._validation_callbacks.count
+    assert_equal 1, Issue.ancestors.count { |a| a == SmartCustomField::Patches::IssuePatch }
   end
 
   private
