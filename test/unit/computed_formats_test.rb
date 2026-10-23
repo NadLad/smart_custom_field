@@ -28,6 +28,13 @@ class SmartCustomFieldComputedFormatsTest < ActiveSupport::TestCase
 
   # Only list formats support multiple values: CustomField#multiple is reset
   # for every other format.
+  def test_string_interpolation
+    field = create_issue_field('Computed label', 'string',
+                               '"#{subject} (#{cfs[%d]})"' % @source.id)
+
+    assert_equal 'Computed formats (7)', value_of(create_issue(@source => '7'), field)
+  end
+
   def test_multiple_values
     field = create_issue_field(
       'Computed multiples', 'list',
