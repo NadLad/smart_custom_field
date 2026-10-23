@@ -18,6 +18,10 @@ module SmartCustomField
     end
 
     def for(source, object, field = nil)
+      FormulaHelpers.with_cache { build(source, object, field) }
+    end
+
+    def build(source, object, field)
       analysis = StaticAnalyzer.analyze(source, object.class)
       payload = {
         'ok' => true,
