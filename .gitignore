@@ -1,0 +1,8 @@
+*.gem
+.bundle/
+vendor/bundle/
+log/
+tmp/
+db/*.sqlite3
+test/reports/
+.DS_Store

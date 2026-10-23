@@ -1,0 +1,5 @@
+en:
+  field_is_computed: Computed
+  field_formula: Formula
+  label_available_custom_fields: Available custom fields
+  error_while_formula_computing: "Error while computing custom field %{custom_field_name}: %{message}"
