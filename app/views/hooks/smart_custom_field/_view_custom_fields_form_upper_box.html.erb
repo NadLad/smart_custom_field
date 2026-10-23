@@ -16,6 +16,8 @@
     <%= render_computed_custom_fields_select(custom_field) %>
   </p>
   <em class="info"><%= l(:text_formula_help) %></em>
+  <%= render :partial => 'hooks/smart_custom_field/preview',
+             :locals => { :custom_field => custom_field } %>
 </div>
 
 <%= javascript_tag do %>

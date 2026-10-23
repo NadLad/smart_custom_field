@@ -1,0 +1,111 @@
+<%# Preview panel for the admin form: evaluates the formula against a real %>
+<%# object through SmartCustomField::PreviewsController and shows the result, %>
+<%# the values it read and the static warnings. Nothing is persisted. %>
+<% preview_type = custom_field.class.customized_class %>
+<% if preview_type.present? %>
+  <fieldset id="smart-custom-field-preview" class="box">
+    <legend><%= l(:label_preview_formula) %></legend>
+    <p>
+      <label for="smart-custom-field-preview-id">
+        <%= l(:label_preview_object_id, :type => preview_type.name) %>
+      </label>
+      <input type="number" id="smart-custom-field-preview-id" min="1" size="6">
+      <a href="#" id="smart-custom-field-preview-run" class="icon icon-test">
+        <%= l(:button_run_formula) %>
+      </a>
+    </p>
+    <div id="smart-custom-field-preview-output" class="info" style="display: none;"></div>
+  </fieldset>
+
+  <%= javascript_tag do %>
+    (function () {
+      var run = document.getElementById('smart-custom-field-preview-run');
+      var idInput = document.getElementById('smart-custom-field-preview-id');
+      var output = document.getElementById('smart-custom-field-preview-output');
+      var textarea = document.getElementById('custom_field_formula');
+      var formatSelect = document.getElementById('custom_field_field_format');
+      var fieldIdInput = document.getElementById('custom_field_id');
+      if (!run || !idInput || !output || !textarea) { return; }
+
+      var objectType = <%= preview_type.name.to_json.html_safe %>;
+      var defaultFormat = <%= custom_field.field_format.to_s.to_json.html_safe %>;
+      var url = <%= smart_custom_field_preview_path.to_json.html_safe %>;
+
+      function row(label, value) {
+        var line = document.createElement('div');
+        var strong = document.createElement('strong');
+        strong.textContent = label + ': ';
+        line.appendChild(strong);
+        line.appendChild(document.createTextNode(value));
+        return line;
+      }
+
+      function list(title, items) {
+        var wrapper = document.createElement('div');
+        wrapper.appendChild(row(title, items.length ? '' : '-'));
+        items.forEach(function (item) {
+          var entry = document.createElement('div');
+          entry.textContent = '  ' + item;
+          wrapper.appendChild(entry);
+        });
+        return wrapper;
+      }
+
+      function render(payload) {
+        output.textContent = '';
+        if (payload.ok) {
+          output.appendChild(row('Result', payload.result + ' (' + payload.result_class + ')'));
+          output.appendChild(row('Stored value', payload.cast_value));
+        } else {
+          output.appendChild(row('Error', payload.error));
+        }
+
+        var inputs = (payload.inputs || []).map(function (input) {
+          return input.name + ' [cfs[' + input.id + ']] = ' + input.cast;
+        });
+        output.appendChild(list('Inputs', inputs));
+
+        if (payload.warnings && payload.warnings.length) {
+          output.appendChild(list('Warnings', payload.warnings));
+        }
+        output.style.display = '';
+      }
+
+      function failure(message) {
+        output.textContent = '';
+        output.appendChild(row('Error', message));
+        output.style.display = '';
+      }
+
+      run.addEventListener('click', function (event) {
+        event.preventDefault();
+        var objectId = idInput.value;
+        if (!objectId) { failure('object id required'); return; }
+
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        var body = {
+          object_type: objectType,
+          object_id: objectId,
+          formula: textarea.value,
+          custom_field_id: fieldIdInput ? fieldIdInput.value : '',
+          field_format: formatSelect ? formatSelect.value : defaultFormat
+        };
+
+        fetch(url, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': meta ? meta.content : ''
+          },
+          body: JSON.stringify(body)
+        }).then(function (response) {
+          if (!response.ok) { throw new Error('HTTP ' + response.status); }
+          return response.json();
+        }).then(render).catch(function (error) {
+          failure(error.message);
+        });
+      });
+    })();
+  <% end %>
+<% end %>

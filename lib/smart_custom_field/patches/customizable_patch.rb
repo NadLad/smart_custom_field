@@ -37,18 +37,9 @@ module SmartCustomField
       end
 
       # Values exposed to formulas as `cfs[<id>]`, cast to the type of their
-      # custom field so that `cfs[12] * 2` works on an integer field. An empty
-      # numeric field is exposed as 0: `nil + 1` would otherwise make every
-      # arithmetic formula fail as soon as one of its inputs is unset.
-      NUMERIC_FORMATS = %w[int float].freeze
-
+      # custom field so that `cfs[12] * 2` works on an integer field.
       def formula_values
-        custom_field_values.each_with_object({}) do |custom_field_value, hash|
-          field = custom_field_value.custom_field
-          value = field.cast_value(custom_field_value.value)
-          value = 0 if value.nil? && NUMERIC_FORMATS.include?(field.field_format)
-          hash[field.id] = value
-        end
+        Evaluator.values_for(self)
       end
     end
   end

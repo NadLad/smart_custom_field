@@ -7,3 +7,6 @@ en:
   text_formula_help: "Ruby expression evaluated when the object is saved. Use cfs[<id>] to reference another custom field, or the object attributes (estimated_hours, subject...)."
   text_is_computed_is_immutable: "This flag can only be set when the custom field is created."
   label_no_available_custom_fields: "No custom field available"
+  label_preview_formula: "Preview"
+  label_preview_object_id: "Test on %{type} #"
+  button_run_formula: "Evaluate"

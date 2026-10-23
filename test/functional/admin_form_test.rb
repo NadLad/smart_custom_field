@@ -20,6 +20,14 @@ class SmartCustomFieldAdminFormTest < Redmine::ControllerTest
     assert_select 'select#smart-custom-field-available'
   end
 
+  def test_new_form_renders_the_preview_panel
+    get :new, :params => {:type => 'IssueCustomField'}
+    assert_response :success
+
+    assert_select '#smart-custom-field-preview'
+    assert_select '#smart-custom-field-preview-run'
+  end
+
   def test_new_form_lists_the_fields_that_can_be_referenced
     get :new, :params => {:type => 'IssueCustomField'}
     assert_response :success

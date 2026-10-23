@@ -7,3 +7,6 @@ fr:
   text_formula_help: "Expression Ruby évaluée à l'enregistrement de l'objet. Utilisez cfs[<id>] pour référencer un autre champ personnalisé, ou les attributs de l'objet (estimated_hours, subject...)."
   text_is_computed_is_immutable: "Ce drapeau ne peut être défini qu'à la création du champ personnalisé."
   label_no_available_custom_fields: "Aucun champ personnalisé disponible"
+  label_preview_formula: "Prévisualisation"
+  label_preview_object_id: "Tester sur %{type} n°"
+  button_run_formula: "Évaluer"
