@@ -37,4 +37,29 @@ namespace :smart_custom_field do
       puts 'Dry run: nothing was written. Re-run with APPLY=true to write the formulas above.'
     end
   end
+
+  desc 'Check every computed formula and report what would break (advisory)'
+  task :check => :environment do
+    fields = CustomField.where(:is_computed => true).order(:id)
+    flagged = 0
+
+    fields.each do |field|
+      result = SmartCustomField::StaticAnalyzer.for_field(field)
+      warnings = result.warnings
+      unknown = SmartCustomField::StaticAnalyzer.unknown_references(field)
+      warnings << "unknown custom field id(s): #{unknown.join(', ')}" if unknown.any?
+      next if warnings.empty?
+
+      flagged += 1
+      puts "##{field.id} #{field.name} (#{field.type})"
+      warnings.each { |warning| puts "  - #{warning}" }
+      puts "  formula: #{field.formula.inspect}"
+    end
+
+    if flagged.zero?
+      puts "#{fields.size} computed field(s), no problem found."
+    else
+      puts "#{flagged} of #{fields.size} computed field(s) need attention."
+    end
+  end
 end
