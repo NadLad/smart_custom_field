@@ -4,3 +4,6 @@ en:
   label_available_custom_fields: Available custom fields
   error_while_formula_computing: "Error while computing custom field %{custom_field_name}: %{message}"
   error_unknown_custom_field_in_formula: "references unknown custom field ids: %{ids}"
+  text_formula_help: "Ruby expression evaluated when the object is saved. Use cfs[<id>] to reference another custom field, or the object attributes (estimated_hours, subject...)."
+  text_is_computed_is_immutable: "This flag can only be set when the custom field is created."
+  label_no_available_custom_fields: "No custom field available"

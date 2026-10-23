@@ -1,0 +1,57 @@
+<% custom_field = local_assigns[:custom_field] || @custom_field %>
+<% form = local_assigns[:form] %>
+<%# The flag is read once at creation time: flipping it on an existing field %>
+<%# would silently change the meaning of every value already stored. %>
+<% immutable = !custom_field.new_record? %>
+<p>
+  <%= form.check_box :is_computed, :disabled => immutable %>
+  <% if immutable && custom_field.is_computed? %>
+    <em class="info"><%= l(:text_is_computed_is_immutable) %></em>
+  <% end %>
+</p>
+<div id="smart-custom-field-formula" style="<%= 'display: none;' unless custom_field.is_computed? %>">
+  <p><%= form.text_area :formula, :rows => 6, :label => :field_formula %></p>
+  <p>
+    <label for="smart-custom-field-available"><%= l(:label_available_custom_fields) %></label>
+    <%= render_computed_custom_fields_select(custom_field) %>
+  </p>
+  <em class="info"><%= l(:text_formula_help) %></em>
+</div>
+
+<%= javascript_tag do %>
+  (function () {
+    var checkbox = document.getElementById('custom_field_is_computed');
+    var box = document.getElementById('smart-custom-field-formula');
+    var select = document.getElementById('smart-custom-field-available');
+    var textarea = document.getElementById('custom_field_formula');
+    if (!checkbox || !box) { return; }
+
+    function toggle() {
+      box.style.display = checkbox.checked ? '' : 'none';
+    }
+    checkbox.addEventListener('change', toggle);
+    toggle();
+
+    if (!select || !textarea) { return; }
+
+    function insert(text) {
+      var start = textarea.selectionStart;
+      var end = textarea.selectionEnd;
+      var value = textarea.value;
+      textarea.value = value.slice(0, start) + text + value.slice(end);
+      textarea.selectionStart = textarea.selectionEnd = start + text.length;
+      textarea.focus();
+    }
+
+    select.addEventListener('dblclick', function () {
+      if (select.value) { insert('cfs[' + select.value + ']'); }
+    });
+    // Double click does not exist on touch devices.
+    select.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && select.value) {
+        event.preventDefault();
+        insert('cfs[' + select.value + ']');
+      }
+    });
+  })();
+<% end %>
