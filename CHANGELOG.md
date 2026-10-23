@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — intelligence, zone A
+## 0.2.0 — 2026-10-23
 
 Six evolutions, all of them a strict superset of `computed_custom_field`: no
 existing formula changes meaning, no stored value is rewritten.
