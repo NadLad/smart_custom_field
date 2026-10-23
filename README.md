@@ -472,8 +472,8 @@ value on its own.
 
 ## Roadmap
 
-`docs/INTELLIGENCE-ROADMAP.md` tracks the evolutions beyond parity, in three
-risk zones. **0.2.0 is zone A** — the six changes with zero impact on stored
+The evolutions beyond parity are grouped in three risk zones and shipped zone
+by zone. **0.2.0 is zone A** — the six changes with zero impact on stored
 data:
 
 | Evolution | Surface |
