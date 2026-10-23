@@ -3,13 +3,20 @@
 module SmartCustomField
   # Entry point for every monkey patch.
   #
-  # Called from init.rb inside `Rails.application.config.to_prepare`, so it
-  # runs again after each code reload in development. Every patch registered
-  # here must therefore be idempotent: check `ancestors` before including or
-  # prepending a module.
+  # Called from init.rb, which Rails itself evaluates from a `to_prepare`
+  # callback, so this runs at boot and again after each code reload in
+  # development. Every patch registered here must therefore be idempotent:
+  # check `ancestors` before including or prepending a module.
   module Patches
+    # Every model declaring `acts_as_customizable` in Redmine 7.0.
+    CUSTOMIZABLE_MODELS = %w[
+      Document Enumeration Group Issue Project TimeEntry User Version
+    ].freeze
+
     def self.apply!
       include_patch(CustomField, CustomFieldPatch)
+      CUSTOMIZABLE_MODELS.each { |name| include_patch(name.constantize, CustomizablePatch) }
+      prepend_patch(Issue, IssuePatch)
       true
     end
 
