@@ -16,9 +16,30 @@
     <%= render_computed_custom_fields_select(custom_field) %>
   </p>
   <em class="info"><%= l(:text_formula_help) %></em>
+  <fieldset id="smart-custom-field-builder" class="box">
+    <legend><%= l(:label_formula_builder) %></legend>
+    <p class="info"><%= l(:text_formula_builder_help) %></p>
+    <div id="smart-custom-field-builder-rows"></div>
+    <p>
+      <a href="#" id="smart-custom-field-builder-add" class="icon icon-add">
+        <%= l(:button_add_condition) %>
+      </a>
+      <a href="#" id="smart-custom-field-builder-apply" class="icon icon-edit">
+        <%= l(:button_insert_expression) %>
+      </a>
+    </p>
+    <%# Field list the builder clones for every condition row. Hidden rather %>
+    <%# than rendered per row: the options are the same for all of them. %>
+    <select id="smart-custom-field-builder-fields" style="display: none;">
+      <%= formula_builder_field_options(custom_field) %>
+    </select>
+  </fieldset>
   <%= render :partial => 'hooks/smart_custom_field/preview',
              :locals => { :custom_field => custom_field } %>
 </div>
+
+<%= javascript_include_tag 'javascripts/smart_custom_field_formula_builder.js',
+                           :plugin => 'smart_custom_field' %>
 
 <%= javascript_tag do %>
   (function () {

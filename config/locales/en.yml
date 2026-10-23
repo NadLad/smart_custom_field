@@ -10,3 +10,7 @@ en:
   label_preview_formula: "Preview"
   label_preview_object_id: "Test on %{type} #"
   button_run_formula: "Evaluate"
+  label_formula_builder: "Condition builder"
+  text_formula_builder_help: "Builds a Ruby expression from conditions and inserts it at the cursor of the formula above. The formula stays the source of truth: the conditions are never read back from it."
+  button_add_condition: "Add a condition"
+  button_insert_expression: "Insert the expression"

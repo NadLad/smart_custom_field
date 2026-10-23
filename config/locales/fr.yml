@@ -10,3 +10,7 @@ fr:
   label_preview_formula: "Prévisualisation"
   label_preview_object_id: "Tester sur %{type} n°"
   button_run_formula: "Évaluer"
+  label_formula_builder: "Constructeur de conditions"
+  text_formula_builder_help: "Génère une expression Ruby à partir de conditions et l'insère au curseur dans la formule ci-dessus. La formule reste la source de vérité : les conditions ne sont jamais relues depuis le texte."
+  button_add_condition: "Ajouter une condition"
+  button_insert_expression: "Insérer l'expression"

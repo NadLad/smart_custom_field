@@ -31,6 +31,19 @@ module SmartCustomField
         scope = scope.where.not(:id => custom_field.id) unless custom_field.new_record?
         scope.to_a
       end
+
+      # Options of the expression builder's field list. The format travels with
+      # each option so the builder can pick the right operators and quote the
+      # value the way the field expects it.
+      def formula_builder_field_options(custom_field)
+        options = custom_fields_for_formula(custom_field).map do |field|
+          content_tag(:option,
+                      "#{field.name} (cfs[#{field.id}])",
+                      :value => field.id,
+                      :data => {:format => field.field_format})
+        end
+        safe_join(options)
+      end
     end
   end
 end

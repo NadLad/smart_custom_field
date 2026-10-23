@@ -35,6 +35,37 @@ class SmartCustomFieldAdminFormTest < Redmine::ControllerTest
     assert_select 'select#smart-custom-field-available option', :minimum => 1
   end
 
+  def test_new_form_renders_the_condition_builder
+    get :new, :params => {:type => 'IssueCustomField'}
+    assert_response :success
+
+    assert_select '#smart-custom-field-builder'
+    assert_select '#smart-custom-field-builder-rows'
+    assert_select '#smart-custom-field-builder-add'
+    assert_select '#smart-custom-field-builder-apply'
+    # The behaviour lives in a plugin asset, not in an inline script.
+    assert_select 'script[src*="smart_custom_field_formula_builder"]'
+  end
+
+  def test_the_builder_carries_the_format_of_each_referenceable_field
+    get :new, :params => {:type => 'IssueCustomField'}
+    assert_response :success
+
+    # The builder picks its operators and quotes the value from the format, so
+    # the format has to travel with the option.
+    assert_select 'select#smart-custom-field-builder-fields option[data-format]', :minimum => 1
+  end
+
+  def test_the_builder_never_replaces_the_formula_textarea
+    get :new, :params => {:type => 'IssueCustomField'}
+    assert_response :success
+
+    # The textarea stays the source of truth: the builder is a generator that
+    # inserts into it, not a widget that owns the value.
+    assert_select 'textarea#custom_field_formula'
+    assert_select '#smart-custom-field-builder textarea', :count => 0
+  end
+
   def test_edit_form_renders_the_formula_of_a_computed_field
     field = IssueCustomField.create!(
       :name => 'Computed edit', :field_format => 'int', :is_for_all => true,
