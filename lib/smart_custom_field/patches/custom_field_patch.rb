@@ -11,7 +11,7 @@ module SmartCustomField
       included do
         safe_attributes 'formula', 'is_computed'
 
-        before_validation :normalize_formula, :if => :is_computed?
+        before_validation :normalize_formula
         validates_with SmartCustomField::FormulaValidator, :if => :is_computed?
       end
 
@@ -24,7 +24,7 @@ module SmartCustomField
       private
 
       def normalize_formula
-        self.formula = formula.to_s.strip
+        self.formula = formula.strip if formula.present?
       end
     end
   end
