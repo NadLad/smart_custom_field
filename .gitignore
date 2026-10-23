@@ -3,7 +3,7 @@
 vendor/bundle/
 log/
 tmp/
-db/*.sqlite3
+*.sqlite3
 test/reports/
+coverage/
 .DS_Store
-test/docker/
