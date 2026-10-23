@@ -470,27 +470,6 @@ Every addition is a **strict superset**: no formula written for
 `computed_custom_field` changes meaning, and nothing here rewrites a stored
 value on its own.
 
-## Roadmap
-
-The evolutions beyond parity are grouped in three risk zones and shipped zone
-by zone. **0.2.0 is zone A** — the six changes with zero impact on stored
-data:
-
-| Evolution | Surface |
-|---|---|
-| Export / import JSON | `rake smart_custom_field:export` / `:import` |
-| Static analysis | `rake smart_custom_field:check` |
-| Admin preview | form panel + `POST /smart_custom_field/preview` |
-| Explain a saved value | `GET /smart_custom_field/explain` |
-| Cross-object helpers | `cf(object, id)`, `cfs` on related objects |
-| Condition builder | admin form, one-way generator |
-
-Not delivered yet, by design: cycle detection, backfill, uniform read-only,
-aggregations, dependency-driven recompute, topological ordering, a sandboxed
-interpreter, and named formula libraries. Each of them either changes the
-result of an existing formula or writes stored values, so each ships behind an
-explicit opt-in.
-
 ## License
 
 MIT — see [MIT-LICENSE](MIT-LICENSE).
