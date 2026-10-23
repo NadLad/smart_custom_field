@@ -3,3 +3,4 @@ en:
   field_formula: Formula
   label_available_custom_fields: Available custom fields
   error_while_formula_computing: "Error while computing custom field %{custom_field_name}: %{message}"
+  error_unknown_custom_field_in_formula: "references unknown custom field ids: %{ids}"

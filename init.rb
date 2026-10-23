@@ -9,8 +9,8 @@ Redmine::Plugin.register :smart_custom_field do
   requires_redmine version_or_higher: '7.0.0'
 end
 
-# Re-applied on every code reload so the patches survive Zeitwerk reloading
-# in development, and applied once at boot in production.
-Rails.application.config.to_prepare do
-  SmartCustomField::Patches.apply!
-end
+# init.rb is evaluated from a `to_prepare` callback (see
+# Redmine::PluginLoader.load), so calling this here applies the patches at
+# boot and again after every code reload in development. Registering a nested
+# `config.to_prepare` would only run on the *next* prepare cycle.
+SmartCustomField::Patches.apply!

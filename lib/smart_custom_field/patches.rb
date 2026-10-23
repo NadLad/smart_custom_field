@@ -9,8 +9,18 @@ module SmartCustomField
   # prepending a module.
   module Patches
     def self.apply!
-      # Patches are registered here as they are added.
+      include_patch(CustomField, CustomFieldPatch)
       true
     end
+
+    def self.include_patch(target, patch)
+      target.include(patch) unless target.include?(patch)
+    end
+
+    def self.prepend_patch(target, patch)
+      target.prepend(patch) unless target.ancestors.include?(patch)
+    end
+
+    private_class_method :include_patch, :prepend_patch
   end
 end

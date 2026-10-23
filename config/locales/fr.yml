@@ -3,3 +3,4 @@ fr:
   field_formula: Formule
   label_available_custom_fields: Champs personnalisés disponibles
   error_while_formula_computing: "Erreur lors du calcul du champ personnalisé %{custom_field_name} : %{message}"
+  error_unknown_custom_field_in_formula: "référence des identifiants de champs personnalisés inconnus : %{ids}"
