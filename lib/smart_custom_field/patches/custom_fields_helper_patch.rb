@@ -3,8 +3,32 @@
 module SmartCustomField
   module Patches
     # Helpers used by the admin form hook to render the list of custom fields
-    # a formula can reference.
+    # a formula can reference, and to render a computed field as text on every
+    # customizable form.
     module CustomFieldsHelperPatch
+      # A computed field is rendered as its value, not as an input: it is
+      # derived, so an editable control would only invite an edit that the next
+      # save throws away.
+      #
+      # Overriding the tag builder rather than a per-model hook covers every
+      # customizable model at once — Issue, Project, User, Version, Group,
+      # Document, TimeEntry and Enumeration all build their custom field rows
+      # through this helper.
+      def custom_field_tag_with_label(name, custom_value, options = {})
+        return super unless custom_value.custom_field.is_computed?
+
+        body =
+          if (value = show_value(custom_value)).present?
+            content_tag('span', value, :class => 'computed-custom-field-value')
+          else
+            # A field created after the object was last saved has no value yet.
+            content_tag('span', l(:label_computed_value_pending),
+                        :class => 'computed-custom-field-value info')
+          end
+        # No `for` attribute: there is no control to focus.
+        custom_field_label_tag(name, custom_value, options.merge(:for_tag_id => nil)) + body
+      end
+
       # Select tag listing the custom fields of the same type as `custom_field`,
       # valued by their id: a double click in the form inserts `cfs[<id>]`.
       def render_computed_custom_fields_select(custom_field)

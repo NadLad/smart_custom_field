@@ -17,7 +17,10 @@ module SmartCustomField
       include_patch(CustomField, CustomFieldPatch)
       CUSTOMIZABLE_MODELS.each { |name| include_patch(name.constantize, CustomizablePatch) }
       prepend_patch(Issue, IssuePatch)
-      include_patch(CustomFieldsHelper, CustomFieldsHelperPatch)
+      # Prepended, not included: this patch overrides an existing helper, and an
+      # included module sits *below* the class that defines it in the ancestor
+      # chain, so the override would never be reached.
+      prepend_patch(CustomFieldsHelper, CustomFieldsHelperPatch)
       register_hook_listener!
       true
     end

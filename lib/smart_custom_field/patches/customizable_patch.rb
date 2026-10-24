@@ -28,7 +28,37 @@ module SmartCustomField
         FormulaHelpers.cf(object, custom_field_id)
       end
 
+      # A computed value is derived, never chosen: the ids of computed fields
+      # are dropped from whatever is assigned from the outside, so a crafted
+      # POST cannot store a value the next save would have to fight with. This
+      # also closes the hole left by a formula that raises, where no new value
+      # is written and a submitted one would otherwise survive.
+      #
+      # The computation writes its own results through `FormulaComputation`.
+      def custom_field_values=(values)
+        super(FormulaComputation.writing? ? values : without_computed_ids(values))
+      end
+
       private
+
+      # Drops the ids of computed fields from an assignment. The hash is
+      # rebuilt as a plain Hash: the caller may hand an
+      # ActionController::Parameters, and Redmine stringifies the keys itself.
+      def without_computed_ids(values)
+        return values unless values.respond_to?(:each_pair)
+
+        blocked = computed_custom_field_ids
+        return values if blocked.empty?
+
+        values.each_pair.with_object({}) do |(key, value), kept|
+          kept[key] = value unless blocked.include?(key.to_s)
+        end
+      end
+
+      def computed_custom_field_ids
+        custom_field_values.select { |value| value.custom_field.is_computed? }
+                           .map { |value| value.custom_field_id.to_s }
+      end
 
       def compute_computed_custom_fields
         computed = custom_field_values.select { |value| value.custom_field.is_computed? }
@@ -54,8 +84,9 @@ module SmartCustomField
         end
 
         # `custom_field_values=` flags the values as changed, which makes
-        # Redmine re-validate and re-save them.
-        self.custom_field_values = new_values if new_values.any?
+        # Redmine re-validate and re-save them. The window tells the setter
+        # this assignment is the computation itself, not a client edit.
+        FormulaComputation.writing { self.custom_field_values = new_values } if new_values.any?
       end
     end
   end
