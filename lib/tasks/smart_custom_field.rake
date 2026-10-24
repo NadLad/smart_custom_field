@@ -38,6 +38,42 @@ namespace :smart_custom_field do
     end
   end
 
+  desc 'Recompute the stored value of every computed custom field (dry run unless APPLY=true)'
+  task :recompute_all => :environment do
+    apply = ENV['APPLY'] == 'true'
+    batch_size = ENV['BATCH_SIZE'].to_i
+    batch_size = SmartCustomField::Backfill::DEFAULT_BATCH_SIZE if batch_size <= 0
+
+    if (user_id = ENV['USER_ID'].presence)
+      user = User.find_by(:id => user_id)
+      abort "USER_ID=#{user_id}: no such user" if user.nil?
+
+      User.current = user
+      puts "Running as #{user.login}."
+    else
+      current = User.current.login.presence || 'AnonymousUser'
+      puts "Running as #{current} (User.current). Set USER_ID=<id> to change it."
+    end
+
+    report = SmartCustomField::Backfill.run(:apply => apply, :batch_size => batch_size)
+
+    report.warnings.each { |warning| puts "warning: #{warning}" }
+
+    if report.scanned.zero?
+      puts 'No object to backfill.'
+    elsif apply
+      puts "Scanned #{report.scanned} object(s), wrote #{report.changed} value(s), " \
+           "#{report.failed} failure(s)."
+    else
+      puts "Scanned #{report.scanned} object(s), #{report.changed} value(s) would change. " \
+           'Dry run: nothing was written. Re-run with APPLY=true to write them.'
+    end
+
+    report.errors.first(20).each { |error| puts "  - #{error}" }
+    puts "  ... and #{report.errors.size - 20} more" if report.errors.size > 20
+    exit 1 if report.failed.positive?
+  end
+
   desc 'Check every computed formula and report what would break (advisory)'
   task :check => :environment do
     fields = CustomField.where(:is_computed => true).order(:id)
