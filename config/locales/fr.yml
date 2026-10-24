@@ -4,6 +4,7 @@ fr:
   label_available_custom_fields: Champs personnalisés disponibles
   error_while_formula_computing: "Erreur lors du calcul du champ personnalisé %{custom_field_name} : %{message}"
   error_unknown_custom_field_in_formula: "référence des identifiants de champs personnalisés inconnus : %{ids}"
+  error_formula_cycle: "crée une dépendance circulaire entre champs calculés : %{path}"
   text_formula_help: "Expression Ruby évaluée à l'enregistrement de l'objet. Utilisez cfs[<id>] pour référencer un autre champ personnalisé, ou les attributs de l'objet (estimated_hours, subject...)."
   text_is_computed_is_immutable: "Ce drapeau ne peut être défini qu'à la création du champ personnalisé."
   label_no_available_custom_fields: "Aucun champ personnalisé disponible"

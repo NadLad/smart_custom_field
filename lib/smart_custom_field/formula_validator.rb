@@ -31,6 +31,8 @@ module SmartCustomField
         return
       end
 
+      return unless check_cycle(record, source)
+
       object = record.class.customized_class&.new
       return if object.nil?
 
@@ -46,6 +48,29 @@ module SmartCustomField
     end
 
     private
+
+    # Rejects a formula that would close a dependency loop between computed
+    # fields. Returns false only when the record must not be saved.
+    #
+    # A cycle the installation already carries is tolerated: a field whose
+    # stored formula is part of a loop has to stay editable, otherwise it could
+    # never be fixed from the admin form. The loop is logged instead, so the
+    # save that would introduce a *new* one is still refused.
+    def check_cycle(record, source)
+      cycle = FormulaCycle.detect(record, source)
+      return true if cycle.nil?
+
+      if FormulaCycle.stored_cycle(record)
+        Rails.logger.warn(
+          "[smart_custom_field] custom field #{record.id} still participates in " \
+          "a pre-existing formula cycle: #{cycle.join(' -> ')}"
+        )
+        return true
+      end
+
+      record.errors.add(:formula, I18n.t('error_formula_cycle', :path => cycle.join(' -> ')))
+      false
+    end
 
     def nil_receiver?(error)
       error.is_a?(NoMethodError) && error.message.match?(/\bfor nil\b|\bNilClass\b/)
