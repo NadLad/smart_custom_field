@@ -5,7 +5,9 @@ require File.expand_path('../test_helper', File.dirname(__FILE__))
 # The admin form must expose the computed flag and the formula textarea.
 class SmartCustomFieldAdminFormTest < Redmine::ControllerTest
   tests CustomFieldsController
-  fixtures :custom_fields, :trackers
+  fixtures :custom_fields, :trackers, :projects, :users, :email_addresses, :roles,
+           :members, :member_roles, :issues, :issue_statuses, :enumerations,
+           :custom_values, :versions, :projects_trackers, :enabled_modules
 
   def setup
     @request.session[:user_id] = 1
@@ -109,5 +111,65 @@ class SmartCustomFieldAdminFormTest < Redmine::ControllerTest
     end
     assert_response :success
     assert_select 'div#errorExplanation'
+  end
+
+  # Editing a formula does not rewrite the values it already produced: the form
+  # has to say so before the save, not after.
+  def test_edit_form_warns_about_the_values_already_computed
+    field = create_computed_field('Stale singular', '1')
+    save_issue_with(field)
+
+    get :edit, :params => {:id => field.id}
+    assert_response :success
+
+    assert_select 'p.stale-computed-values', :text => /1 stored value/
+  end
+
+  # Counted on objects, not on rows: the warning is about records whose value
+  # will not follow the new formula.
+  def test_edit_form_counts_the_objects
+    field = create_computed_field('Stale plural', '1')
+    save_issue_with(field)
+    save_issue_with(field)
+
+    get :edit, :params => {:id => field.id}
+    assert_response :success
+
+    assert_select 'p.stale-computed-values', :text => /2 stored values/
+  end
+
+  def test_edit_form_does_not_warn_without_stored_values
+    field = create_computed_field('Stale none', '1')
+
+    get :edit, :params => {:id => field.id}
+    assert_response :success
+
+    assert_select 'p.stale-computed-values', :count => 0
+  end
+
+  def test_new_form_does_not_warn
+    get :new, :params => {:type => 'IssueCustomField'}
+    assert_response :success
+
+    assert_select 'p.stale-computed-values', :count => 0
+  end
+
+  private
+
+  def create_computed_field(name, formula)
+    field = IssueCustomField.create!(
+      :name => name, :field_format => 'int', :is_for_all => true,
+      :is_computed => true, :formula => formula
+    )
+    field.trackers = Tracker.all.to_a
+    field
+  end
+
+  def save_issue_with(field)
+    issue = Issue.new(:project_id => 1, :tracker_id => 1,
+                      :subject => "Stale value #{field.id}", :author_id => 2)
+    issue.custom_field_values = {field.id.to_s => '1'}
+    assert issue.save, issue.errors.full_messages.join(', ')
+    issue
   end
 end

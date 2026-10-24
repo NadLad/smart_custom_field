@@ -34,6 +34,17 @@
       <%= formula_builder_field_options(custom_field) %>
     </select>
   </fieldset>
+  <%# Editing the formula does not rewrite the values already stored: they keep
+      the result of the previous formula until their object is saved again or
+      the backfill runs. Saying it before the save is cheaper than a bug report
+      about a total that is one formula behind. %>
+  <% stored = custom_field.is_computed? ? custom_field.stored_value_count : 0 %>
+  <% if stored.positive? %>
+    <p class="warning stale-computed-values">
+      <%= l(stored == 1 ? :text_stale_computed_value : :text_stale_computed_values,
+            :count => stored) %>
+    </p>
+  <% end %>
   <%= render :partial => 'hooks/smart_custom_field/preview',
              :locals => { :custom_field => custom_field } %>
 </div>

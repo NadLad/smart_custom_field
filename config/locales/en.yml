@@ -16,3 +16,5 @@ en:
   button_add_condition: "Add a condition"
   button_insert_expression: "Insert the expression"
   label_computed_value_pending: "Computed when the record is saved"
+  text_stale_computed_value: "1 stored value was computed with this formula. Changing it does not rewrite that value: run rake smart_custom_field:recompute_all (dry run first) afterwards."
+  text_stale_computed_values: "%{count} stored values were computed with this formula. Changing it does not rewrite them: run rake smart_custom_field:recompute_all (dry run first) afterwards."

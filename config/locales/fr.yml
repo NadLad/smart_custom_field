@@ -16,3 +16,5 @@ fr:
   button_add_condition: "Ajouter une condition"
   button_insert_expression: "Insérer l'expression"
   label_computed_value_pending: "Calculé à l'enregistrement"
+  text_stale_computed_value: "1 valeur stockée a été calculée avec cette formule. La modifier ne réécrit pas cette valeur : lancez ensuite rake smart_custom_field:recompute_all (dry run d'abord)."
+  text_stale_computed_values: "%{count} valeurs stockées ont été calculées avec cette formule. La modifier ne les réécrit pas : lancez ensuite rake smart_custom_field:recompute_all (dry run d'abord)."
