@@ -37,6 +37,30 @@ class SmartCustomFieldEvaluatorTest < ActiveSupport::TestCase
     assert_raises(NameError) { SmartCustomField::Evaluator.evaluate('unknown_method', @object) }
   end
 
+  # A formula runs inside a request: a loop must fail the save, not hold the
+  # worker until the client gives up.
+  def test_a_runaway_formula_is_interrupted
+    error = assert_raises(SmartCustomField::Evaluator::EvaluationTimeout) do
+      shortened { SmartCustomField::Evaluator.evaluate('loop { }', @object) }
+    end
+
+    assert_match(/more than 0\.05 seconds/, error.message)
+  end
+
+  def test_the_timeout_leaves_a_normal_formula_alone
+    assert_equal 8, shortened { SmartCustomField::Evaluator.evaluate('(self.estimated_hours || 0) * 2', @object) }
+  end
+
+  # The rescue that turns a formula error into a validation message must cover
+  # the timeout too, or a runaway formula would surface as a 500.
+  def test_the_timeout_is_a_formula_error
+    assert SmartCustomField::Evaluator::EvaluationTimeout.ancestors.include?(StandardError)
+  end
+
+  def test_the_default_limit_is_five_seconds
+    assert_equal 5, SmartCustomField::Evaluator::EVALUATION_TIMEOUT
+  end
+
   def test_cast_int_truncates_to_integer
     assert_equal '42', SmartCustomField::Evaluator.cast(custom_field('int'), 42.9)
   end
@@ -63,6 +87,17 @@ class SmartCustomFieldEvaluatorTest < ActiveSupport::TestCase
   end
 
   private
+
+  # Runs the block with a limit short enough to keep the suite fast, and puts
+  # the configured one back afterwards.
+  def shortened
+    evaluator = SmartCustomField::Evaluator
+    previous = evaluator.evaluation_timeout
+    evaluator.evaluation_timeout = 0.05
+    yield
+  ensure
+    evaluator.evaluation_timeout = previous
+  end
 
   def custom_field(format)
     CustomField.new(:field_format => format)

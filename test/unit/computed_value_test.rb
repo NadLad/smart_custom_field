@@ -39,6 +39,24 @@ class SmartCustomFieldComputedValueTest < ActiveSupport::TestCase
     assert_equal '8.0', value_of(issue, field)
   end
 
+  # A formula that never returns must block the save with a message, not hold
+  # the request until the client gives up. The field is written around the
+  # validator: a formula like this one cannot be saved through the admin form,
+  # but an existing field can be given one by a bad import.
+  def test_a_runaway_formula_blocks_the_save
+    field = create_field('Computed loop', 'int', '1', true)
+    field.update_column(:formula, 'loop { }')
+    issue = Issue.new(:project_id => 1, :tracker_id => 1,
+                      :subject => 'Runaway formula', :author_id => 2)
+
+    SmartCustomField::Evaluator.evaluation_timeout = 0.05
+    assert_not issue.save
+  ensure
+    SmartCustomField::Evaluator.evaluation_timeout = SmartCustomField::Evaluator::EVALUATION_TIMEOUT
+
+    assert_match(/took more than 0\.05 seconds/, issue.errors.full_messages.join(' '))
+  end
+
   def test_casts_the_result_to_the_field_format
     field = create_field('Computed text', 'string', '"total: #{cfs[%d]}"' % @a.id, true)
     issue = create_issue(@a => '42')
