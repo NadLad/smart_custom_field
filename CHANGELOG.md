@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.3.0 — 2026-10-23
+
+Five evolutions, all of them a strict superset of `computed_custom_field`: no
+existing formula changes meaning, and no stored value is rewritten without
+being asked for. Two behaviour changes are deliberate and documented below —
+read-only enforcement now covers every customizable model, and aggregations
+fail loudly past their caps.
+
+### Version bump
+
+`SmartCustomField::VERSION` is now `0.3.0`. One migration is added
+(`003_add_smart_custom_field_computations`); it creates a new digest table and
+touches no existing column.
+
+### Recompute every stored value
+
+`rake smart_custom_field:recompute_all` walks every record of every
+customizable model, recomputes each computed field and rewrites the stored
+value where it differs. Dry run unless `APPLY=true`; `BATCH_SIZE` (default
+500) and `USER_ID` are optional. It writes values only — `updated_on` is
+untouched and no journal entry is created, so recomputing a thousand issues
+does not rewrite their history or notify anybody. A field whose formula raises
+is reported and skipped rather than aborting the run, and the task exits
+non-zero at the end. This is the task to run after importing formulas from
+another instance, after a far-reaching formula change, or after taking over
+values that were never computed.
+
+### Cycle detection
+
+A formula that reads a field which itself reads the first one is now refused on
+save: `FormulaCycle.detect` walks the graph of computed fields of the same
+type through `Evaluator.custom_field_ids` and returns the path
+(`1 -> 3 -> 2 -> 1`), which the validator reports as `error_formula_cycle` with
+the path in the message. A cycle that is *already stored* is allowed through
+with a log warning, so it can be repaired from the admin instead of becoming
+unsavable.
+
+### Read-only on every customizable model
+
+Computed fields were read-only on issues only; on a project, user, time entry,
+version, group, enumeration or document the field was shown as an input and
+whatever was typed was replaced on save. That is now uniform: the field renders
+as text on all eight models and its id is dropped from anything assigned from
+the outside, so a crafted `POST` cannot store a value the next save would fight
+with. The only writer left is the computation itself, which opens a scoped
+thread-local window around its own assignment
+(`FormulaComputation.writing { ... }`). A failed formula no longer lets a
+submitted value through, and a field that has never been computed shows
+*Computed when the record is saved* instead of an empty input.
+
+### Skip the evaluation when the inputs did not change
+
+Every computed field stores a digest of the last evaluation in
+`smart_custom_field_computations`: the formula itself plus every referenced
+input, plus all of the record's own attributes except the timestamps and the
+lock version. On save, an unchanged digest skips the evaluation and the write
+entirely. A formula that reads a related object (`parent`, `assigned_to`, the
+project) or a volatile value (`Date.today`, `Time.now`, `rand`) is detected by
+the static analyzer and gets **no** digest, so it recomputes on every save
+instead of serving a stale value. When in doubt the plugin recomputes.
+
+### Aggregations
+
+Five helpers on every customizable model: `cf_sum(collection, id)`,
+`cf_avg(collection, id)`, `cf_min(collection, id)`, `cf_max(collection, id)`
+and `subtree(issue)` (the issues below an issue, itself excluded) — so
+`cf_sum(children, 7)` and `cf_avg(subtree, 7)` need no loop in the formula. An
+unset value is ignored rather than counted as `0`, so an average over three
+issues where two filled the field divides by two. A collection past
+`MAX_COLLECTION` (1000, detected with `limit(cap + 1)` so the relation is never
+loaded) or a subtree past `MAX_DEPTH` (5 levels) raises `AggregationError` with
+an explicit message instead of silently truncating. An empty collection totals
+to `0`; `cf_avg` / `cf_min` / `cf_max` return `nil` for it.
+
 ## 0.2.0 — 2026-10-23
 
 Six evolutions, all of them a strict superset of `computed_custom_field`: no

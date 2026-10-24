@@ -3,7 +3,7 @@
 [![Redmine](https://img.shields.io/badge/Redmine-7.0.x-b32024?style=flat-square)](https://www.redmine.org)
 [![Ruby](https://img.shields.io/badge/Ruby-%E2%89%A5%203.2-CC342D?style=flat-square)](https://www.ruby-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](MIT-LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-informational?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-informational?style=flat-square)](CHANGELOG.md)
 
 **Computed custom fields for Redmine 7.0.x.** A computed field takes no user
 input: its value is calculated by a formula evaluated in the context of the
@@ -16,8 +16,10 @@ that keeps its data contract exactly: same columns (`formula`, `is_computed`),
 same `cfs[<id>]` syntax, same serialization of the stored value. An existing
 installation switches over without migrating a single row. On top of that
 parity it adds the tooling the original never had — validation, static
-analysis, preview, explain, export/import — plus cross-object helpers and a
-condition builder.
+analysis, preview, explain, export/import — plus cross-object helpers,
+aggregations and a condition builder. Computed fields are read-only on every
+customizable model, and a save whose inputs did not move skips the evaluation
+altogether.
 
 ## Table of contents
 
@@ -28,19 +30,20 @@ condition builder.
   - [Creating a computed field](#creating-a-computed-field)
   - [Formula syntax](#formula-syntax)
   - [Cross-object helpers](#cross-object-helpers)
+  - [Aggregations](#aggregations)
   - [Condition builder](#condition-builder)
   - [Preview and explain](#preview-and-explain)
   - [Validation](#validation)
   - [Read-only](#read-only)
 - [Formula cookbook](#formula-cookbook)
 - [Maintenance](#maintenance)
+  - [Recompute every stored value](#recompute-every-stored-value)
 - [How it works](#how-it-works)
 - [Security](#security)
 - [Troubleshooting](#troubleshooting)
 - [Upgrading and uninstalling](#upgrading-and-uninstalling)
 - [Development](#development)
 - [Switching from computed_custom_field](#switching-from-computed_custom_field)
-- [Roadmap](#roadmap)
 - [License](#license)
 
 ## Quick start
@@ -82,11 +85,13 @@ cd /path/to/redmine
 bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 ```
 
-Restart Redmine. The two migrations add `formula` and `is_computed` to
+Restart Redmine. The migrations add `formula` and `is_computed` to
 `custom_fields`, and each one is skipped when its column already exists — so
 installing this plugin on a database previously managed by
 `computed_custom_field` keeps every existing formula, without any data
-migration.
+migration. A third migration adds the `smart_custom_field_computations` table
+holding the input digest of each field's last evaluation: it starts empty and
+fills itself as records are saved, no backfill required.
 
 **Do not run both plugins at once.** They patch the same classes
 (`CustomField`, `Customizable`) and the inclusion order would decide which one
@@ -151,6 +156,36 @@ one formula and an Integer in another. The values of a related object are
 cached for the duration of one computation and the cache is dropped after each
 save. `cfs` is public on all eight customizable models; no existing Redmine
 method is shadowed (the suite asserts it model by model).
+
+### Aggregations
+
+Totalling a set of issues needs no Ruby loop in the formula: four helpers take
+a collection and the id of the custom field to read.
+
+| Formula | Result |
+|---|---|
+| `cf_sum(children, 7)` | total of field 7 over the direct children |
+| `cf_avg(subtree, 7)` | mean of field 7 over every issue below this one |
+| `cf_min(children, 7)` / `cf_max(children, 7)` | smallest / largest value |
+| `cf(project, 12)` | plain read, one object, no aggregation |
+
+A collection may be a relation (`children`), an array, or a single object.
+`subtree` is the issues **below** this one, itself excluded — a formula
+computing its own value can never read it back through the subtree.
+
+Two differences from `cfs` worth knowing:
+
+- **A value that is not set is ignored**, not counted as `0`. `cfs[7]` reads an
+  empty integer field as `0` (so arithmetic does not blow up), but an average
+  over three issues where only two filled the field divides by two.
+- **A collection or a tree past its cap raises.** An aggregation is capped at
+  `MAX_COLLECTION` (1000) records and a subtree at `MAX_DEPTH` (5) levels
+  below the issue; past that the formula fails with an explicit message
+  instead of scanning a table. The collection cap is checked with
+  `limit(cap + 1)`, so an oversized relation is detected without loading it.
+
+An empty collection totals to `0`, and `cf_avg` / `cf_min` / `cf_max` return
+`nil` for it.
 
 ### Condition builder
 
@@ -225,11 +260,20 @@ third-party plugin adds. For everything it cannot see, use
 
 ### Read-only
 
-On issues, computed fields are never editable: they are excluded from the
-issue form and from mass assignment, so a submitted value cannot silently
-override the computed one. On the other customizable models (project, user,
-time entry, version, group, enumeration, document) the field is still shown in
-the form, but whatever is typed is replaced by the computed value on save.
+A computed value is derived, never chosen: on **all eight customizable
+models** the field is rendered as text instead of an input, and its id is
+dropped from anything assigned from the outside. A crafted `POST` cannot store
+a value the next save would have to fight with, and a formula that raises
+leaves the stored value alone instead of letting a submitted one through.
+
+```
+Total value: 42          ← issue, project, user, time entry, version,
+                            group, enumeration, document
+```
+
+A field that was never computed yet shows *Computed when the record is saved*
+rather than an empty input. The only writer left is the computation itself,
+which opens a scoped, thread-local window around its own assignment.
 
 ## Formula cookbook
 
@@ -264,7 +308,7 @@ Two caveats worth knowing before writing formulas:
 
 ## Maintenance
 
-Three rake tasks ship with the plugin, all run from the Redmine root.
+Four rake tasks ship with the plugin, all run from the Redmine root.
 
 ### Export and import formulas
 
@@ -288,6 +332,32 @@ change of the format is refused rather than misread.
 This is the migration path between environments: export from the old Redmine,
 import on the new one, and the diff tells you exactly which formulas changed.
 It is also your backup before an uninstall.
+
+### Recompute every stored value
+
+```sh
+# Show what would change, without writing anything
+bundle exec rake smart_custom_field:recompute_all
+
+# Actually apply it
+APPLY=true bundle exec rake smart_custom_field:recompute_all
+```
+
+Walks every record of every customizable model, recomputes each computed field
+and rewrites the stored value only where it differs. This is the task to run
+after a formula change that reaches far (a new helper, a corrected path), after
+importing formulas from another instance, or after upgrading from a plugin
+whose values were never computed.
+
+It writes **values only**: `updated_on` is not touched and no journal entry is
+created, so recomputing a thousand issues does not rewrite their history or
+notify anybody. It is also a dry run unless `APPLY=true`, and a field whose
+formula raises is reported and skipped — one broken formula does not abort the
+run, and the task exits non-zero at the end so a script notices.
+
+`BATCH_SIZE` (default 500) and `USER_ID` (default: the task runs without a
+logged user, which makes `User.current` `nil` — set it to reproduce a
+user-dependent formula) are both optional.
 
 ### Static analysis
 
@@ -352,7 +422,7 @@ restricted interpreter later means touching `Evaluator` and nothing else.
   customized object. Only administrators can create custom fields, so this is
   the same trust level as installing a plugin — but a formula can read anything
   the application can read. A sandboxed interpreter is not implemented; it is
-  on the [roadmap](#roadmap).
+  a candidate for a later release.
 - **Both endpoints are admin-only** and both are read-only. They cannot write a
   custom value, and the preview only instantiates types from the closed
   customizable list, never a constant taken from the request.
@@ -375,7 +445,12 @@ restricted interpreter later means touching `Evaluator` and nothing else.
 | Preview or explain returns `404` | the object id does not exist, the field is not computed, or the field type has no customizable model | check the id and the field |
 | The admin form shows no preview panel | the custom field's model is not in the customizable list | the panel only exists where a value can be computed |
 | `rake check` flags a method that works | the method comes from another plugin | ignore it; the task is advisory by design |
-| A computed field is editable on a project/user form | read-only enforcement is issue-only | expected — the typed value is overwritten on save |
+| A computed field shows as text on a form | this is the design: computed fields are read-only on all eight customizable models | edit the formula, not the value |
+| A computed field is empty on a form | the record has never been saved since the formula was set | save once, or run `smart_custom_field:recompute_all` |
+| `AggregationError: collection exceeds` | the formula aggregates more records than `MAX_COLLECTION` (1000) | narrow the collection, or total it in the database instead |
+| `AggregationError: subtree deeper than` | the issue sits more than `MAX_DEPTH` (5) levels above the leaves | aggregate a narrower subtree |
+| A cycle error on a field that used to work | the formula now closes a loop: `A → B → A` | rewrite one of the fields to break the loop; a cycle already stored is allowed through so it can be repaired |
+| A changed input does not trigger a recompute | the formula reads a related record or is volatile, so no digest is stored | expected — those formulas recompute on every save |
 | The plugin does nothing after an upgrade | the patch was not reapplied | restart Redmine; `init.rb` runs on `to_prepare` |
 
 ## Upgrading and uninstalling
@@ -390,8 +465,15 @@ bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 # restart Redmine
 ```
 
-0.2.0 adds no migration and changes no stored value: every formula written for
-0.1.0 or for `computed_custom_field` keeps its meaning.
+0.3.0 adds one migration (`003_add_smart_custom_field_computations`) creating
+the digest table; it stores no user data and changes no stored value, so every
+formula written for 0.1.0, 0.2.0 or for `computed_custom_field` keeps its
+meaning. Two behaviour changes worth knowing before you upgrade: computed
+fields are now **read-only on every customizable model** (previously they were
+read-only on issues only), and an aggregation formula that walks past its caps
+now fails loudly instead of silently truncating. Run
+`smart_custom_field:recompute_all` once if you want every stored value brought
+in line with the current formulas.
 
 **Uninstall:**
 
@@ -399,13 +481,13 @@ bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 # 1. Keep the formulas — the uninstall migration drops the columns
 bundle exec rake smart_custom_field:export[formulas.json]
 
-# 2. Roll the plugin migrations back (drops formula and is_computed)
+# 2. Roll the plugin migrations back (drops formula, is_computed and the digest table)
 bundle exec rake redmine:plugins:migrate NAME=smart_custom_field VERSION=0
 
 # 3. Remove plugins/smart_custom_field and restart Redmine
 ```
 
-Step 2 is destructive: `formula` and `is_computed` are dropped, and with them
+Step 2 is destructive: `formula`, `is_computed` and the digest table are dropped, and with them
 every formula. The computed *values* already stored in `custom_values` are
 untouched — they simply stop being recalculated.
 
@@ -433,11 +515,12 @@ docker run --rm --user root \
          RAILS_ENV=test bundle exec rails test plugins/smart_custom_field/test/functional/preview_test.rb'
 ```
 
-The suite (105 runs, 313 assertions) covers the evaluator, the formula
-validator, the model patches (computed values, read-only, idempotent patching),
-the cross-object helpers, the export/import round trip, the static analyzer,
-the condition builder expression generator, the admin form and the two admin
-endpoints.
+The suite (159 runs, 483 assertions) covers the evaluator, the formula
+validator, cycle detection, the model patches (computed values, read-only on
+all eight models, idempotent patching), the input digest, the cross-object
+helpers and the aggregations, the backfill task, the export/import round trip,
+the static analyzer, the condition builder expression generator, the admin
+form and the two admin endpoints.
 
 ## Switching from computed_custom_field
 
@@ -449,8 +532,8 @@ before installing the other — never running both.
    `rake redmine:plugins:migrate NAME=computed_custom_field VERSION=0`: its
    uninstall migration drops `formula` and `is_computed`, and with them every
    formula.
-3. **Install `smart_custom_field`** and migrate. Both migrations detect the
-   existing columns and skip themselves, so the formulas stay in place.
+3. **Install `smart_custom_field`** and migrate. The column migrations detect
+   the existing columns and skip themselves, so the formulas stay in place.
 4. **Audit** with `bundle exec rake smart_custom_field:check`.
 5. **Spot-check** a few fields in the admin preview before trusting a mass
    save.
@@ -461,35 +544,17 @@ before installing the other — never running both.
 | Formula syntax (`cfs[<id>]`, Ruby, `self`) | identical |
 | Admin form (checkbox, textarea, field list, double-click) | identical |
 | Formula validation on save | added |
-| Computed fields read-only on issues | added |
+| Computed fields read-only on issues | identical |
+| Computed fields read-only on the other seven models | added |
 | `cf(object, id)` / `object.cfs` | added, strict superset |
+| Aggregations (`cf_sum`, `cf_avg`, `cf_min`, `cf_max`, `subtree`) | added |
+| Cycle detection | added |
 | Condition builder, preview, explain | added, new UI only |
-| `export` / `import` / `check` rake tasks | added, read-only on data |
+| `export` / `import` / `check` / `recompute_all` rake tasks | added, read-only on data |
 
 Every addition is a **strict superset**: no formula written for
 `computed_custom_field` changes meaning, and nothing here rewrites a stored
 value on its own.
-
-## Roadmap
-
-The evolutions beyond parity are grouped in three risk zones and shipped zone
-by zone. **0.2.0 is zone A** — the six changes with zero impact on stored
-data:
-
-| Evolution | Surface |
-|---|---|
-| Export / import JSON | `rake smart_custom_field:export` / `:import` |
-| Static analysis | `rake smart_custom_field:check` |
-| Admin preview | form panel + `POST /smart_custom_field/preview` |
-| Explain a saved value | `GET /smart_custom_field/explain` |
-| Cross-object helpers | `cf(object, id)`, `cfs` on related objects |
-| Condition builder | admin form, one-way generator |
-
-Not delivered yet, by design: cycle detection, backfill, uniform read-only,
-aggregations, dependency-driven recompute, topological ordering, a sandboxed
-interpreter, and named formula libraries. Each of them either changes the
-result of an existing formula or writes stored values, so each ships behind an
-explicit opt-in.
 
 ## License
 
