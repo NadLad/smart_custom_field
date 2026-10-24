@@ -1,5 +1,64 @@
 # Changelog
 
+## 1.0.0 — 2026-10-24
+
+Three evolutions, no migration, and no formula changes meaning: every value
+stored by 0.3.0 is still valid and still readable. Two behaviour changes are
+deliberate and documented below — a chain of computed fields now settles in a
+single save, and an evaluation that never returns is cut off instead of
+holding the request.
+
+### Version bump
+
+`SmartCustomField::VERSION` is now `1.0.0`. No migration: the digest table from
+0.3.0 is reused as-is.
+
+### Bound every evaluation with a timeout
+
+A formula is arbitrary Ruby, so it can loop (`(1..).each { }`), walk a
+collection that turns out to be huge, or call a service that stopped
+answering. Until now nothing bounded that: the worker stayed busy until the
+request died, and with a pool of workers one broken formula could take the
+whole instance down. Every evaluation now runs under a wall-clock timeout of
+**5 seconds** by default and raises `SmartCustomField::EvaluationTimeout` when
+it expires. The save continues and the field keeps the value it had before —
+the same outcome as any other runtime error in a formula, which is what makes
+a timeout a safety net rather than a data-loss event. Hosts with a deliberately
+heavy formula raise the bound with
+`SmartCustomField::Evaluator.evaluation_timeout = 10` in an initializer.
+
+### Settle a chain of computed fields in one save
+
+A formula reading another computed field (`total = cfs[subtotal] * cfs[rate]`)
+used to depend on the order the fields were created in, because the fields were
+evaluated in `position` order and a field read whatever the *previous* save had
+stored. A chain therefore needed one save per link, and a formula edited to
+read a newer field needed two. Fields are now sorted by **dependency** before
+evaluation (`ComputationOrder`), and the value a field produces during the save
+is visible to the fields that read it. One save settles the whole chain,
+whatever order the fields were created in. A cycle is still refused when the
+field is saved; a cycle that already exists in an installation is tolerated so
+it can be repaired from the admin form. The backfill task uses the same
+ordering, so `recompute_all` settles a chain in one pass instead of N.
+
+### Warn that editing a formula leaves the stored values behind
+
+Changing `price * 0.2` to `price * 0.25` rewrites the formula and nothing else:
+the 4 231 issues that already carry a total keep the old figure until each is
+saved again. That was true before and documented nowhere, which made it look
+like a bug. The admin form now says so, next to the formula, as soon as the
+field holds at least one stored value, and points at
+`rake smart_custom_field:recompute_all` for the immediate fix.
+
+### Behaviour changes
+
+- **One save per chain.** Code that saved twice on purpose to settle a chain
+  now gets the same result from one save; the second save is a no-op (the
+  digest matches).
+- **A formula that never returns fails its save.** Previously it hung the
+  worker. It now raises `EvaluationTimeout`, the error is added to the object
+  and the stored value is left untouched.
+
 ## 0.3.0 — 2026-10-23
 
 Five evolutions, all of them a strict superset of `computed_custom_field`: no

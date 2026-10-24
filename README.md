@@ -3,7 +3,7 @@
 [![Redmine](https://img.shields.io/badge/Redmine-7.0.x-b32024?style=flat-square)](https://www.redmine.org)
 [![Ruby](https://img.shields.io/badge/Ruby-%E2%89%A5%203.2-CC342D?style=flat-square)](https://www.ruby-lang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](MIT-LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-informational?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.0-informational?style=flat-square)](CHANGELOG.md)
 
 **Computed custom fields for Redmine 7.0.x.** A computed field takes no user
 input: its value is calculated by a formula evaluated in the context of the
@@ -18,8 +18,9 @@ installation switches over without migrating a single row. On top of that
 parity it adds the tooling the original never had — validation, static
 analysis, preview, explain, export/import — plus cross-object helpers,
 aggregations and a condition builder. Computed fields are read-only on every
-customizable model, and a save whose inputs did not move skips the evaluation
-altogether.
+customizable model, a chain of computed fields settles in a single save, a
+formula that never returns is cut off instead of holding the request, and a save
+whose inputs did not move skips the evaluation altogether.
 
 ## Table of contents
 
@@ -31,9 +32,12 @@ altogether.
   - [Formula syntax](#formula-syntax)
   - [Cross-object helpers](#cross-object-helpers)
   - [Aggregations](#aggregations)
+  - [Chained fields](#chained-fields)
   - [Condition builder](#condition-builder)
   - [Preview and explain](#preview-and-explain)
   - [Validation](#validation)
+  - [Editing a formula](#editing-a-formula)
+  - [Timeouts](#timeouts)
   - [Read-only](#read-only)
 - [Formula cookbook](#formula-cookbook)
 - [Maintenance](#maintenance)
@@ -187,6 +191,32 @@ Two differences from `cfs` worth knowing:
 An empty collection totals to `0`, and `cf_avg` / `cf_min` / `cf_max` return
 `nil` for it.
 
+**An aggregate is only as fresh as the object that carries it.** `cf_sum(children, 7)`
+is evaluated when the **aggregating** object is saved, not when a child changes:
+edit a child and the parent's total keeps the old figure until something saves
+the parent again or [`recompute_all`](#recompute-every-stored-value) runs. On a
+tree where children move every day, schedule the task (see
+[Maintenance](#maintenance)) rather than expecting the parent to follow.
+
+### Chained fields
+
+A computed field may read another computed field:
+
+```
+subtotal = cfs[12] + cfs[13]
+total    = cfs[<id of subtotal>] * 2
+```
+
+The fields are evaluated in **dependency order**, and the value a field produces
+during the save is visible to the fields that read it. A chain therefore settles
+in **one save**, whatever order the fields were created in — including the case
+where a formula was edited later to read a newer field.
+
+A loop between computed fields (`A` reads `B`, `B` reads `A`) is refused when the
+field is saved, see [Validation](#validation). A loop that already exists in an
+installation is tolerated so it can be repaired from the admin form; its values
+settle one save later.
+
 ### Condition builder
 
 Below the textarea, the condition builder generates an expression from rows of
@@ -257,6 +287,40 @@ Error while computing custom field Total: undefined method 'foo' for nil
 The save-time check is deliberately lenient — it cannot know which methods a
 third-party plugin adds. For everything it cannot see, use
 [`rake smart_custom_field:check`](#static-analysis).
+
+### Editing a formula
+
+A formula change applies to the **next save of each object**; it does not
+rewrite the values already stored. Change `price * 0.2` to `price * 0.25` and
+the 4 231 issues that already carry a total keep the old figure until they are
+saved again.
+
+The admin form says so, next to the formula, as soon as the field holds at
+least one stored value. To bring the existing rows in line immediately, run
+[`recompute_all`](#recompute-every-stored-value).
+
+### Timeouts
+
+Every formula evaluation is bounded by a wall-clock timeout — **5 seconds** by
+default. A formula that loops (`(1..).each { }`), walks a huge collection or
+calls into a slow external service is stopped and the save continues with the
+field's previous value, instead of holding a web worker until the request dies.
+
+The evaluator raises a dedicated `SmartCustomField::EvaluationTimeout`, so a
+timeout is never mistaken for a syntax error or a `nil`. The value that was
+stored before the save is kept, exactly as with any other runtime error.
+
+Hosts that need more headroom for a deliberately heavy formula can raise the
+bound in an initializer:
+
+```ruby
+# config/initializers/smart_custom_field.rb
+SmartCustomField::Evaluator.evaluation_timeout = 10
+```
+
+The timeout is a safety net, not a budget: a formula that needs 10 seconds on
+every save is a formula that should be an aggregate or a scheduled
+[`recompute_all`](#recompute-every-stored-value) instead.
 
 ### Read-only
 
@@ -387,11 +451,19 @@ saved, not a follow-up write:
 save
  └─ before_validation
      ├─ Evaluator.values_for(object)        # cfs: cast values, keyed by field id
-     ├─ for each computed field (in position order)
-     │   ├─ Evaluator.evaluate(formula, object, cfs)   # eval, self = object
+     ├─ ComputationOrder.sort(fields)       # computed fields, dependency order
+     ├─ for each computed field (in that order)
+     │   ├─ Evaluator.evaluate(formula, object, cfs)   # eval, self = object,
+     │   │                                             # bounded by a timeout
+     │   ├─ the result joins cfs, so the next field can read it
      │   └─ Evaluator.cast(field, result)              # → custom_values.value
-     └─ a formula that raises aborts the save with an error on the object
+     └─ a formula that raises or times out aborts the save with an error on
+        the object, leaving the stored value untouched
 ```
+
+An object whose inputs did not move — the digests of the values it was computed
+from are unchanged — skips evaluation entirely, which is what keeps a bulk edit
+of a thousand issues from re-running every formula.
 
 The preview and the explain endpoint go through the same `Preview` builder, so
 what an administrator sees in the admin form is what a save would store.
@@ -404,7 +476,8 @@ what an administrator sees in the admin form is what a save would store.
 | `lib/smart_custom_field/patches/custom_field_patch.rb` | validates the formula, freezes `is_computed` |
 | `lib/smart_custom_field/patches/issue_patch.rb` | read-only on issues |
 | `lib/smart_custom_field/patches/custom_fields_helper_patch.rb` | admin form, field list, builder |
-| `lib/smart_custom_field/evaluator.rb` | `eval`, `cfs` casting, result casting |
+| `lib/smart_custom_field/evaluator.rb` | `eval`, `cfs` casting, result casting, timeout |
+| `lib/smart_custom_field/computation_order.rb` | dependency order for a set of computed fields |
 | `lib/smart_custom_field/formula_validator.rb` | save-time checks |
 | `lib/smart_custom_field/static_analyzer.rb` | Ripper analysis for `rake check` |
 | `lib/smart_custom_field/formula_export.rb` | JSON dump, diff, apply |
@@ -421,8 +494,9 @@ restricted interpreter later means touching `Evaluator` and nothing else.
 - **Formulas are Ruby code.** Evaluation uses `eval` with `self` bound to the
   customized object. Only administrators can create custom fields, so this is
   the same trust level as installing a plugin — but a formula can read anything
-  the application can read. A sandboxed interpreter is not implemented; it is
-  a candidate for a later release.
+  the application can read. No sandbox is in place: the trust boundary is
+  "administrator", and the timeout only bounds how long a formula may run, not
+  what it may touch.
 - **Both endpoints are admin-only** and both are read-only. They cannot write a
   custom value, and the preview only instantiates types from the closed
   customizable list, never a constant taken from the request.
@@ -439,7 +513,11 @@ restricted interpreter later means touching `Evaluator` and nothing else.
 |---|---|---|
 | `cfs[42]` is `nil` in the preview although field 42 exists | the field is not available on that object (filtered by tracker or project) | enable the field for that tracker/project, or write `cfs[42] \|\| 0` |
 | Saving fails with `undefined method ... for nil` | the formula walks an association that is empty on this object | use `&.`, `\|\| 0`, or guard with `present?` |
-| The value does not change when an input changes | the input is another *computed* field: chained fields read the value stored by the previous save | save twice, or avoid chaining computed fields |
+| The value does not change when an input changes | the input is another *computed* field, and the chain could not be ordered | fields are now sorted by dependency, so this only happens inside a cycle: break the loop |
+| A chain of computed fields needs several saves | not the case since 1.0.0: the fields settle in dependency order in one save | upgrade, and run `smart_custom_field:recompute_all` once |
+| A save fails with `EvaluationTimeout` | the formula did not return within the evaluation timeout (5 s by default) | narrow the formula, or raise `Evaluator.evaluation_timeout` if the host really needs it |
+| Editing a formula leaves the old values in place | by design: a formula change applies on the next save of each object | run `smart_custom_field:recompute_all` to rewrite the stored values |
+| An aggregate is out of date | an aggregate is computed when the *aggregating* object is saved, not when a child changes | save the parent, or schedule `recompute_all` |
 | The value is stale although nothing was edited | the formula reads `Date.today` / `Time.now`; the value freezes at the last save | expect it, or compute from stored dates instead |
 | Preview returns `403` | the account is not an administrator | use an admin account |
 | Preview or explain returns `404` | the object id does not exist, the field is not computed, or the field type has no customizable model | check the id and the field |
@@ -465,15 +543,24 @@ bundle exec rake redmine:plugins:migrate RAILS_ENV=production
 # restart Redmine
 ```
 
-0.3.0 adds one migration (`003_add_smart_custom_field_computations`) creating
-the digest table; it stores no user data and changes no stored value, so every
-formula written for 0.1.0, 0.2.0 or for `computed_custom_field` keeps its
-meaning. Two behaviour changes worth knowing before you upgrade: computed
-fields are now **read-only on every customizable model** (previously they were
-read-only on issues only), and an aggregation formula that walks past its caps
-now fails loudly instead of silently truncating. Run
-`smart_custom_field:recompute_all` once if you want every stored value brought
-in line with the current formulas.
+1.0.0 adds **no migration**: the digest table is unchanged, no column moves,
+and every formula written for 0.1.0, 0.2.0, 0.3.0 or for
+`computed_custom_field` keeps its meaning. Three behaviour changes worth
+knowing before you upgrade:
+
+- a chain of computed fields now settles in **one save** (it used to need one
+  save per link); the stored values are unchanged, only the number of saves is;
+- every evaluation is bounded by a **5 second timeout** — a formula that used
+  to hang a worker now aborts its save with an `EvaluationTimeout` and keeps
+  the previous value;
+- editing a formula now says so in the admin form when stored values exist.
+  Nothing is rewritten automatically: run `smart_custom_field:recompute_all`
+  once if you want every stored value brought in line with the current
+  formulas.
+
+Two behaviour changes landed in 0.3.0: computed fields became **read-only on
+every customizable model** (previously issues only), and an aggregation formula
+that walks past its caps now fails loudly instead of silently truncating.
 
 **Uninstall:**
 
@@ -515,12 +602,13 @@ docker run --rm --user root \
          RAILS_ENV=test bundle exec rails test plugins/smart_custom_field/test/functional/preview_test.rb'
 ```
 
-The suite (159 runs, 483 assertions) covers the evaluator, the formula
+The suite (178 runs, 529 assertions) covers the evaluator, the formula
 validator, cycle detection, the model patches (computed values, read-only on
-all eight models, idempotent patching), the input digest, the cross-object
-helpers and the aggregations, the backfill task, the export/import round trip,
-the static analyzer, the condition builder expression generator, the admin
-form and the two admin endpoints.
+all eight models, idempotent patching), the input digest, the evaluation
+timeout, the dependency order of chained fields, the cross-object helpers and
+the aggregations, the backfill task, the export/import round trip, the static
+analyzer, the condition builder expression generator, the admin form and the
+two admin endpoints.
 
 ## Switching from computed_custom_field
 
