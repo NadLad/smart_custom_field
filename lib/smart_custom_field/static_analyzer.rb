@@ -17,7 +17,7 @@ module SmartCustomField
   module StaticAnalyzer
     # Methods a formula may call without a receiver that are not defined on the
     # customized model: the plugin's own helpers (see FormulaHelpers).
-    HELPER_METHODS = %w[cfs cf].freeze
+    HELPER_METHODS = %w[cfs cf cf_sum cf_avg cf_min cf_max subtree].freeze
 
     Result = Struct.new(:source, :syntax_error, :unknown_methods, :referenced_ids,
                         :uses_current_user, :reads_related_objects,

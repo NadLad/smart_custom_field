@@ -29,6 +29,31 @@ module SmartCustomField
         FormulaHelpers.cf(object, custom_field_id)
       end
 
+      # Aggregations over a collection, for a formula that totals a set of
+      # issues: `cf_sum(children, 7)`, `cf_avg(subtree, 7)`, `cf_max(children, 7)`.
+      # Unset values are ignored, and a collection or a tree bigger than the
+      # caps raises instead of scanning the table.
+      def cf_sum(collection, custom_field_id)
+        FormulaHelpers.cf_sum(collection, custom_field_id)
+      end
+
+      def cf_avg(collection, custom_field_id)
+        FormulaHelpers.cf_avg(collection, custom_field_id)
+      end
+
+      def cf_min(collection, custom_field_id)
+        FormulaHelpers.cf_min(collection, custom_field_id)
+      end
+
+      def cf_max(collection, custom_field_id)
+        FormulaHelpers.cf_max(collection, custom_field_id)
+      end
+
+      # The issues below this one, itself excluded: `cf_sum(subtree, 7)`.
+      def subtree
+        FormulaHelpers.subtree(self)
+      end
+
       # A computed value is derived, never chosen: the ids of computed fields
       # are dropped from whatever is assigned from the outside, so a crafted
       # POST cannot store a value the next save would have to fight with. This
