@@ -62,10 +62,18 @@ module SmartCustomField
     def values_for(object)
       object.custom_field_values.each_with_object({}) do |custom_field_value, hash|
         field = custom_field_value.custom_field
-        value = field.cast_value(custom_field_value.value)
-        value = 0 if value.nil? && NUMERIC_FORMATS.include?(field.field_format)
-        hash[field.id] = value
+        hash[field.id] = cfs_value(field, custom_field_value.value)
       end
+    end
+
+    # One stored value as a formula sees it through `cfs`. Public so a
+    # computation can put the value it just produced into its own snapshot
+    # without re-reading the object: the two representations must never
+    # disagree, or a chained formula reads something a reload would not.
+    def cfs_value(field, raw)
+      value = field.cast_value(raw)
+      value = 0 if value.nil? && NUMERIC_FORMATS.include?(field.field_format)
+      value
     end
 
     # Evaluates `source` against `object`. `values_by_id` maps custom field

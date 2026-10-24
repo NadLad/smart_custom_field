@@ -97,14 +97,15 @@ module SmartCustomField
       end
 
       def compute_into(computed)
-        # Read once: every field of this save sees the same snapshot, exactly
-        # as it did when the evaluation called `cfs` itself.
+        # The snapshot every formula reads. It is not frozen: a field computed
+        # earlier in this save is visible to the one that reads it, which is
+        # what lets a chain settle in one save instead of one save behind.
         values = cfs
         stored = stored_computation_digests(computed.map(&:custom_field_id))
         new_values = {}
         digests = {}
 
-        computed.each do |custom_field_value|
+        ordered_computed(computed).each do |custom_field_value|
           field = custom_field_value.custom_field
           digest = ComputationDigest.for(field, self, values)
 
@@ -115,8 +116,13 @@ module SmartCustomField
 
           begin
             result = Evaluator.evaluate(field.formula, self, values)
-            new_values[field.id] = Evaluator.cast(field, result)
+            stored_value = Evaluator.cast(field, result)
+            new_values[field.id] = stored_value
             digests[field.id] = digest if digest
+            # Move the snapshot forward, cast exactly as `cfs` reads a stored
+            # value back. A multi-valued result is left alone: Redmine stores
+            # one row per value and `cfs` only ever exposes one of them.
+            values[field.id] = Evaluator.cfs_value(field, stored_value) unless stored_value.is_a?(Array)
           rescue *FormulaValidator::RESCUABLE => e
             errors.add(:base, I18n.t(:error_while_formula_computing,
                                      :custom_field_name => field.name,
@@ -132,6 +138,18 @@ module SmartCustomField
         # Redmine re-validate and re-save them. The window tells the setter
         # this assignment is the computation itself, not a client edit.
         FormulaComputation.writing { self.custom_field_values = new_values } if new_values.any?
+      end
+
+      # Custom values ordered so a field is computed after every computed field
+      # its formula reads: `cfs[subtotal] * cfs[rate]` must not read the values
+      # stored by the previous save. Duplicate entries (a multi-valued field
+      # appears once per value) keep their relative order.
+      def ordered_computed(computed)
+        fields = computed.map(&:custom_field).uniq(&:id)
+        position = ComputationOrder.sort(fields)
+                                  .each_with_index
+                                  .to_h { |field, index| [field.id, index] }
+        computed.sort_by { |custom_field_value| position.fetch(custom_field_value.custom_field_id, fields.size) }
       end
 
       def stored_computation_digests(field_ids)

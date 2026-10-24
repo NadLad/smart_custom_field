@@ -43,7 +43,6 @@ module SmartCustomField
 
       all_fields = fields_by_model.values.flatten
       warn_about_user_current(all_fields, report)
-      warn_about_chained_formulas(all_fields, report)
       warn_about_multiple_fields(all_fields, report)
 
       fields_by_model.each do |model, fields|
@@ -72,7 +71,9 @@ module SmartCustomField
       available_ids = object.custom_field_values.map(&:custom_field_id)
       values = Evaluator.values_for(object)
 
-      fields.each do |field|
+      # Dependency order, so a field reading another computed field sees the
+      # value this run produced instead of the one stored before it.
+      ComputationOrder.sort(fields).each do |field|
         next unless available_ids.include?(field.id)
         # A multi-valued field stores one row per value; that write path is
         # Redmine's, and it is announced as skipped by the run.
@@ -80,6 +81,10 @@ module SmartCustomField
 
         new_value = compute(field, object, values, report)
         next if new_value.equal?(ERROR)
+
+        # Move the snapshot forward even on a dry run: the report has to
+        # describe what an apply would do, chains included.
+        values[field.id] = Evaluator.cfs_value(field, new_value) unless new_value.is_a?(Array)
 
         # Comparing the strings rather than the records keeps a dry run free of
         # side effects and treats "no row" and "empty row" as the same thing.
@@ -136,18 +141,6 @@ module SmartCustomField
       report.warnings << "#{risky.size} formula(s) read User.current: the value depends on the " \
                          'account running this task. Set USER_ID to the account that should own ' \
                          'the result, or those fields will be filled for AnonymousUser.'
-    end
-
-    # Ordering computed fields so a chain settles in one pass is a separate
-    # evolution. Until then, a field reading another computed field sees the
-    # value stored before this run.
-    def warn_about_chained_formulas(fields, report)
-      computed_ids = fields.map(&:id)
-      chained = fields.select { |field| (Evaluator.custom_field_ids(field.formula) & computed_ids).any? }
-      return if chained.empty?
-
-      report.warnings << "#{chained.size} formula(s) read another computed field: this run fills " \
-                         'them in field order, so a chain may need a second run to settle.'
     end
 
     # A multi-valued field stores one custom_values row per value, and splitting

@@ -112,13 +112,18 @@ class SmartCustomFieldBackfillTest < ActiveSupport::TestCase
     assert report.warnings.any? { |warning| warning.include?('User.current') }
   end
 
-  def test_warns_about_a_formula_reading_another_computed_field
+  # A chain used to need a second run: the field reading another computed field
+  # saw the value stored before the run. The run now orders the fields and moves
+  # its snapshot forward, so one pass settles it.
+  def test_a_chain_settles_in_one_run
     first = create_computed('1')
-    create_computed("cfs[#{first.id}] + 1")
+    second = create_computed("cfs[#{first.id}] * 10")
 
-    report = SmartCustomField::Backfill.run
+    SmartCustomField::Backfill.run(:apply => true)
 
-    assert report.warnings.any? { |warning| warning.include?('another computed field') }
+    reloaded = Issue.find(@issue.id)
+    assert_equal '1', reloaded.custom_field_value(first)
+    assert_equal '10', reloaded.custom_field_value(second)
   end
 
   def test_no_computed_field_leaves_an_empty_report
