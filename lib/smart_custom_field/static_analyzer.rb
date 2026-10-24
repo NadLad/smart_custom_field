@@ -20,9 +20,18 @@ module SmartCustomField
     HELPER_METHODS = %w[cfs cf].freeze
 
     Result = Struct.new(:source, :syntax_error, :unknown_methods, :referenced_ids,
-                        :uses_current_user, keyword_init: true) do
+                        :uses_current_user, :reads_related_objects,
+                        keyword_init: true) do
       def valid_syntax?
         syntax_error.nil?
+      end
+
+      # True when the formula only reads the object it runs against (its own
+      # attributes and the `cfs` values handed to it). A formula that reads
+      # another record -- `project.name`, `parent.cfs[5]` -- can produce a
+      # different result without the object itself being saved.
+      def self_contained?
+        valid_syntax? && !uses_current_user && !reads_related_objects
       end
 
       def warnings
@@ -54,12 +63,13 @@ module SmartCustomField
           :syntax_error => syntax_error_message(source),
           :unknown_methods => [],
           :referenced_ids => Evaluator.custom_field_ids(source),
-          :uses_current_user => uses_current_user?(source)
+          :uses_current_user => uses_current_user?(source),
+          :reads_related_objects => false
         )
       end
 
       unknown = []
-      flags = { :user_current => false }
+      flags = { :user_current => false, :related => false }
       walk(tree, unknown, flags, model_class)
 
       Result.new(
@@ -67,7 +77,8 @@ module SmartCustomField
         :syntax_error => nil,
         :unknown_methods => unknown.uniq.sort,
         :referenced_ids => Evaluator.custom_field_ids(source),
-        :uses_current_user => flags[:user_current]
+        :uses_current_user => flags[:user_current],
+        :reads_related_objects => flags[:related]
       )
     end
 
@@ -94,7 +105,7 @@ module SmartCustomField
 
       case node[0]
       when :vcall, :fcall, :command
-        check_bare_call(node, unknown, model_class)
+        check_bare_call(node, unknown, flags, model_class)
       when :call
         check_qualified_call(node, unknown, flags, model_class)
       end
@@ -104,9 +115,19 @@ module SmartCustomField
 
     # A call without a receiver runs against `self`, which is the customized
     # object itself.
-    def check_bare_call(node, unknown, model_class)
+    def check_bare_call(node, unknown, flags, model_class)
       name = ident_name(node[1])
-      return if name.nil? || known_method?(name, model_class)
+      return if name.nil?
+
+      # A bare `project` is an association, not one of the object's own
+      # attributes: what it points at changes without this object being
+      # touched.
+      if model_class && association_class(model_class, name)
+        flags[:related] = true
+        return
+      end
+
+      return if known_method?(name, model_class)
 
       unknown << name
     end
@@ -119,6 +140,12 @@ module SmartCustomField
       if const_receiver(receiver) == 'User' && name == 'current'
         flags[:user_current] = true
         return
+      end
+
+      # `self.project.name` reads another record just as much as `project.name`
+      # does, and the bare call is not visited in that form.
+      if model_class && self_receiver?(receiver) && association_class(model_class, name)
+        flags[:related] = true
       end
 
       # The receiver's class is only known for `self` and for an association

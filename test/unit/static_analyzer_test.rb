@@ -64,6 +64,26 @@ class SmartCustomFieldStaticAnalyzerTest < ActiveSupport::TestCase
     assert(result.warnings.any? { |warning| warning.include?('User.current') })
   end
 
+  # The distinction the digest relies on: reading another record means the
+  # result can change without the object itself being saved.
+  def test_reading_another_record_is_reported
+    ['project.name', 'parent.subject', 'cf(project, 1)', 'self.project.name'].each do |source|
+      result = SmartCustomField::StaticAnalyzer.analyze(source, Issue)
+
+      assert result.reads_related_objects, "#{source} reads another record"
+      assert_not result.self_contained?, "#{source} must not be considered self-contained"
+    end
+  end
+
+  def test_a_formula_reading_only_the_object_itself_is_self_contained
+    ['cfs[1] * 2', 'self.subject.to_s.length', 'estimated_hours || 0'].each do |source|
+      result = SmartCustomField::StaticAnalyzer.analyze(source, Issue)
+
+      assert_not result.reads_related_objects, "#{source} reads nothing else"
+      assert result.self_contained?, "#{source} should be self-contained"
+    end
+  end
+
   def test_the_method_check_is_skipped_without_a_model_class
     result = SmartCustomField::StaticAnalyzer.analyze('estimted_hours * 2', nil)
 

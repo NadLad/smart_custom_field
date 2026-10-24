@@ -10,6 +10,7 @@ module SmartCustomField
 
       included do
         before_validation :compute_computed_custom_fields
+        after_save :store_computation_digests
       end
 
       # Values exposed to formulas as `cfs[<id>]`, cast to the type of their
@@ -61,6 +62,7 @@ module SmartCustomField
       end
 
       def compute_computed_custom_fields
+        @smart_custom_field_digests = nil
         computed = custom_field_values.select { |value| value.custom_field.is_computed? }
         return if computed.empty?
 
@@ -70,12 +72,26 @@ module SmartCustomField
       end
 
       def compute_into(computed)
+        # Read once: every field of this save sees the same snapshot, exactly
+        # as it did when the evaluation called `cfs` itself.
+        values = cfs
+        stored = stored_computation_digests(computed.map(&:custom_field_id))
         new_values = {}
+        digests = {}
+
         computed.each do |custom_field_value|
           field = custom_field_value.custom_field
+          digest = ComputationDigest.for(field, self, values)
+
+          # Nothing this formula reads has moved since the value was stored:
+          # rewriting it would mark an untouched object as edited and pay for
+          # an evaluation that cannot produce anything new.
+          next if digest && stored[field.id] == digest
+
           begin
-            result = Evaluator.evaluate(field.formula, self, cfs)
+            result = Evaluator.evaluate(field.formula, self, values)
             new_values[field.id] = Evaluator.cast(field, result)
+            digests[field.id] = digest if digest
           rescue *FormulaValidator::RESCUABLE => e
             errors.add(:base, I18n.t(:error_while_formula_computing,
                                      :custom_field_name => field.name,
@@ -83,10 +99,59 @@ module SmartCustomField
           end
         end
 
+        # A formula that raised stores no digest: the next save has to try
+        # again instead of trusting a value it never wrote.
+        @smart_custom_field_digests = digests
+
         # `custom_field_values=` flags the values as changed, which makes
         # Redmine re-validate and re-save them. The window tells the setter
         # this assignment is the computation itself, not a client edit.
         FormulaComputation.writing { self.custom_field_values = new_values } if new_values.any?
+      end
+
+      def stored_computation_digests(field_ids)
+        return {} if new_record? || field_ids.empty?
+
+        SmartCustomFieldComputation
+          .where(:customized_type => computation_owner_type, :customized_id => id,
+                 :custom_field_id => field_ids)
+          .pluck(:custom_field_id, :input_digest)
+          .to_h
+      end
+
+      # Runs inside the save transaction, after the value has been written: a
+      # digest is only worth storing once the computation it describes landed.
+      def store_computation_digests
+        digests = @smart_custom_field_digests
+        return if digests.nil? || digests.empty?
+
+        digests.each do |field_id, digest|
+          record = SmartCustomFieldComputation.find_or_initialize_by(
+            :customized_type => computation_owner_type,
+            :customized_id => id,
+            :custom_field_id => field_id
+          )
+          next if record.persisted? && record.input_digest == digest
+
+          record.input_digest = digest
+          # A digest is a cache entry: failing to store it costs one extra
+          # evaluation later, never a wrong value, so it must not fail the save.
+          next if record.save
+
+          Rails.logger.warn(
+            "[smart_custom_field] could not store the computation digest of " \
+            "#{computation_owner_type}##{id}/#{field_id}: " \
+            "#{record.errors.full_messages.join(', ')}"
+          )
+        end
+      ensure
+        @smart_custom_field_digests = nil
+      end
+
+      # Enumeration is subclassed (IssuePriority...): the digests are keyed on
+      # the base class so a field finds them whatever the concrete class is.
+      def computation_owner_type
+        self.class.base_class.name
       end
     end
   end
